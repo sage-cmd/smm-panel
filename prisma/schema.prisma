@@ -11,12 +11,19 @@ generator client {
 // User & Authentication Models
 // ==============================================================================
 
+enum Role {
+  USER
+  ADMIN
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String
   balance      Decimal  @default(0.000000) @db.Decimal(18, 6)
   currency     String   @default("USD")
+  role         Role     @default(USER)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -27,6 +34,7 @@ model User {
   webhookDeliveries  WebhookDelivery[]
   idempotencyRecords IdempotencyRecord[]
 
+  @@index([role, isActive])
   @@map("users")
 }
 
@@ -176,6 +184,8 @@ enum TransactionType {
   DEPOSIT
   DEDUCTION
   REFUND
+  ADMIN_CREDIT
+  ADMIN_DEBIT
 }
 
 enum TransactionStatus {
@@ -190,17 +200,21 @@ enum TransactionStatus {
 ///   - DEPOSIT: Credit balance (+ amount)
 ///   - DEDUCTION: Debit balance (- amount)
 ///   - REFUND: Credit balance (+ amount, reversal of previous deduction)
+///   - ADMIN_CREDIT: Credit balance (+ amount, manual adjustment)
+///   - ADMIN_DEBIT: Debit balance (- amount, manual adjustment)
 model Transaction {
-  id          String            @id @default(uuid())
-  userId      String
-  user        User              @relation(fields: [userId], references: [id], onDelete: Restrict)
-  orderId     Int?
-  order       Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  amount      Decimal           @db.Decimal(18, 6)
-  type        TransactionType
-  status      TransactionStatus @default(SUCCESS)
-  description String
-  createdAt   DateTime          @default(now())
+  id            String            @id @default(uuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orderId       Int?
+  order         Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  amount        Decimal           @db.Decimal(18, 6)
+  balanceBefore Decimal?          @db.Decimal(18, 6)
+  balanceAfter  Decimal?          @db.Decimal(18, 6)
+  type          TransactionType
+  status        TransactionStatus @default(SUCCESS)
+  description   String
+  createdAt     DateTime          @default(now())
 
   @@index([userId, createdAt])
   @@index([orderId])
@@ -213,15 +227,15 @@ model Transaction {
 // ==============================================================================
 
 model Webhook {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   url       String
   secret    String?
   events    String[]
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   deliveries WebhookDelivery[]
 
@@ -287,4 +301,3 @@ model IdempotencyRecord {
   @@index([expiresAt])
   @@map("idempotency_records")
 }
-

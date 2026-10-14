@@ -86,3 +86,4 @@ if (require.main === module) {
 }
 
 export { startServer };
+export { adminRouter } from "./routes/admin";

@@ -6,10 +6,12 @@ import { logger } from "../lib/logger";
 import { env } from "../config/env";
 
 export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
-  // Is this the legacy API route (POST /api/v1, but not /api/v1/rest)?
+  // Is this the legacy API route (POST /api/v1, but not /api/v1/rest or /api/v1/admin)?
   const isLegacyRoute =
     req.originalUrl === "/api/v1" ||
-    (req.originalUrl.startsWith("/api/v1") && !req.originalUrl.startsWith("/api/v1/rest"));
+    (req.originalUrl.startsWith("/api/v1") &&
+      !req.originalUrl.startsWith("/api/v1/rest") &&
+      !req.originalUrl.startsWith("/api/v1/admin"));
 
   // 1. Handled AppError
   if (err instanceof AppError) {

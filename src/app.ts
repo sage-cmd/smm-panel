@@ -8,6 +8,7 @@ import { isRedisHealthy } from "./lib/redis";
 import { NotFoundError } from "./errors/AppError";
 import { legacyRouter } from "./modules/legacy/legacy.router";
 import { restRouter } from "./modules/rest/rest.router";
+import { adminRouter } from "./routes/admin";
 
 export function createApp(): Express {
   const app = express();
@@ -49,10 +50,13 @@ export function createApp(): Express {
     });
   });
 
-  // 5. Modern REST API (GET/POST/PATCH/DELETE /api/v1/rest/...)
+  // 5. Admin API (GET/POST/PATCH/DELETE /api/v1/admin/...)
+  app.use("/api/v1/admin", adminRouter);
+
+  // 6. Modern REST API (GET/POST/PATCH/DELETE /api/v1/rest/...)
   app.use("/api/v1/rest", restRouter);
 
-  // 6. Legacy SMM API (POST /api/v1)
+  // 7. Legacy SMM API (POST /api/v1)
   app.use("/api/v1", legacyRouter);
 
   // 7. Catch-all 404 Route for Unmatched Paths

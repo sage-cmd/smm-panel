@@ -6,6 +6,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { isPrismaHealthy } from "./lib/prisma";
 import { isRedisHealthy } from "./lib/redis";
 import { NotFoundError } from "./errors/AppError";
+import { legacyRouter } from "./modules/legacy/legacy.router";
 
 export function createApp(): Express {
   const app = express();
@@ -47,7 +48,10 @@ export function createApp(): Express {
     });
   });
 
-  // 5. Placeholder / Catch-all 404 Route for Unmatched Paths
+  // 5. Legacy SMM API (POST /api/v1)
+  app.use("/api/v1", legacyRouter);
+
+  // 6. Catch-all 404 Route for Unmatched Paths
   app.use((req: Request) => {
     throw new NotFoundError(`Endpoint '${req.method} ${req.originalUrl}' not found`);
   });

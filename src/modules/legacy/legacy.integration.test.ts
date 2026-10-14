@@ -53,6 +53,22 @@ vi.mock("../../lib/redis", () => ({
   isRedisHealthy: vi.fn().mockResolvedValue(true),
   disconnectRedis: vi.fn(),
   getRedisClient: vi.fn(),
+  redisOptions: {},
+}));
+
+vi.mock("../../jobs/queues", () => ({
+  enqueueOrderFulfillment: vi.fn().mockResolvedValue(undefined),
+  enqueueDripFeedBatch: vi.fn().mockResolvedValue(undefined),
+  closeQueues: vi.fn().mockResolvedValue(undefined),
+  QUEUE_NAMES: {
+    ORDER_FULFILLMENT: "order-fulfillment",
+    DRIP_FEED: "drip-feed-scheduler",
+    WEBHOOK_DELIVERY: "webhook-delivery",
+  },
+}));
+
+vi.mock("../../jobs/events", () => ({
+  emitOrderEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("Legacy SMM API Integration (POST /api/v1)", () => {

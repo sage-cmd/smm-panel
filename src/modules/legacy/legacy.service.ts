@@ -7,6 +7,9 @@ import {
   distributeDripFeedBatches,
 } from "../financial/calculator";
 import { LegacyAddOrderInput, LegacyOrderStatusInput } from "./legacy.schemas";
+import { enqueueOrderFulfillment, enqueueDripFeedBatch } from "../../jobs/queues";
+import { emitOrderEvent } from "../../jobs/events";
+import { logger } from "../../lib/logger";
 
 /**
  * Maps OrderStatus enum to legacy SMM panel title-case representation
@@ -186,6 +189,32 @@ export class LegacyService {
 
       return order;
     });
+
+    // Enqueue background processing and trigger webhook events
+    const isDripFeed = result.runs !== null && result.runs > 1;
+    try {
+      if (isDripFeed) {
+        await enqueueDripFeedBatch(result.id, 1, 0);
+      } else {
+        await enqueueOrderFulfillment(result.id);
+      }
+    } catch (queueErr) {
+      logger.error(`Failed to enqueue background job for order #${result.id}:`, queueErr);
+    }
+
+    try {
+      await emitOrderEvent("order.created", {
+        id: result.id,
+        userId: result.userId,
+        serviceId: result.serviceId,
+        status: result.status,
+        remains: result.remains,
+        startCount: result.startCount,
+        totalCharge: result.totalCharge,
+      });
+    } catch (eventErr) {
+      logger.error(`Failed to emit order.created for order #${result.id}:`, eventErr);
+    }
 
     return {
       status: "success",

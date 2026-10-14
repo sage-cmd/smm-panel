@@ -13,6 +13,9 @@ import {
   RestCreateWebhookInput,
   RestUpdateWebhookInput,
 } from "./rest.schemas";
+import { enqueueOrderFulfillment, enqueueDripFeedBatch } from "../../jobs/queues";
+import { emitOrderEvent } from "../../jobs/events";
+import { logger } from "../../lib/logger";
 
 export class RestService {
   /**
@@ -222,6 +225,32 @@ export class RestService {
 
         return createdOrder;
       });
+
+      // Enqueue background processing and trigger webhook events
+      const isDripFeed = order.runs !== null && order.runs > 1;
+      try {
+        if (isDripFeed) {
+          await enqueueDripFeedBatch(order.id, 1, 0);
+        } else {
+          await enqueueOrderFulfillment(order.id);
+        }
+      } catch (queueErr) {
+        logger.error(`Failed to enqueue background job for order #${order.id}:`, queueErr);
+      }
+
+      try {
+        await emitOrderEvent("order.created", {
+          id: order.id,
+          userId: order.userId,
+          serviceId: order.serviceId,
+          status: order.status,
+          remains: order.remains,
+          startCount: order.startCount,
+          totalCharge: order.totalCharge,
+        });
+      } catch (eventErr) {
+        logger.error(`Failed to emit order.created for order #${order.id}:`, eventErr);
+      }
 
       const responsePayload = {
         id: order.id,

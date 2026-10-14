@@ -15,6 +15,7 @@ vi.mock("./lib/redis", () => ({
   isRedisHealthy: vi.fn(),
   disconnectRedis: vi.fn(),
   getRedisClient: vi.fn(),
+  redisOptions: {},
 }));
 
 describe("Express App Foundation (app.ts)", () => {

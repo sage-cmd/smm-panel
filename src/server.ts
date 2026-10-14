@@ -2,6 +2,7 @@ import { app } from "./app";
 import { env } from "./config/env";
 import { connectPrisma, disconnectPrisma } from "./lib/prisma";
 import { disconnectRedis } from "./lib/redis";
+import { startWorkers, stopWorkers } from "./jobs";
 import { logger } from "./lib/logger";
 import { Server } from "node:http";
 
@@ -13,6 +14,9 @@ async function startServer(): Promise<void> {
 
     // Connect and verify database connection
     await connectPrisma();
+
+    // Start background queue workers & outbox poller
+    startWorkers();
 
     // Start HTTP listener
     server = app.listen(env.PORT, () => {
@@ -36,9 +40,12 @@ async function startServer(): Promise<void> {
           logger.info("HTTP server closed.");
 
           try {
+            await stopWorkers();
             await disconnectPrisma();
             await disconnectRedis();
-            logger.info("All database and Redis connections successfully closed. Exiting process.");
+            logger.info(
+              "All workers, database and Redis connections successfully closed. Exiting process.",
+            );
             process.exit(0);
           } catch (cleanupErr) {
             logger.error("Error during resource cleanup:", cleanupErr);

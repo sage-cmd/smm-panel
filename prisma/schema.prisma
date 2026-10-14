@@ -1,0 +1,290 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==============================================================================
+// User & Authentication Models
+// ==============================================================================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  balance      Decimal  @default(0.000000) @db.Decimal(18, 6)
+  currency     String   @default("USD")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  apiKeys            ApiKey[]
+  orders             Order[]
+  transactions       Transaction[]
+  webhooks           Webhook[]
+  webhookDeliveries  WebhookDelivery[]
+  idempotencyRecords IdempotencyRecord[]
+
+  @@map("users")
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyHash    String    @unique
+  keyPrefix  String?
+  name       String?   @default("Default Key")
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+  @@index([keyHash, isActive])
+  @@map("api_keys")
+}
+
+// ==============================================================================
+// Service Catalog Models
+// ==============================================================================
+
+model Service {
+  id               Int      @id @default(autoincrement())
+  name             String
+  category         String
+  ratePer1000      Decimal  @db.Decimal(18, 6)
+  minQuantity      Int
+  maxQuantity      Int
+  type             String   @default("Default")
+  description      String?  @db.Text
+  supportsDripfeed Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([isActive, category])
+  @@map("services")
+}
+
+// ==============================================================================
+// Order & Fulfillment Models
+// ==============================================================================
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELED
+  PARTIAL
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  serviceId       Int
+  service         Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  link            String
+  quantity        Int
+  totalCharge     Decimal     @db.Decimal(18, 6)
+  status          OrderStatus @default(PENDING)
+  startCount      Int?
+  remains         Int
+  runs            Int?
+  interval        Int?
+  externalOrderId String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  transactions   Transaction[]
+  fulfillmentJob FulfillmentJob?
+  batches        DripFeedBatch[]
+
+  @@index([userId, status])
+  @@index([serviceId])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+enum FulfillmentStatus {
+  PENDING
+  PROCESSING
+  DISPATCHED
+  COMPLETED
+  FAILED
+}
+
+/// Durable outbox record for asynchronous order fulfillment.
+/// Persisted in the same database transaction as balance deduction and order creation.
+model FulfillmentJob {
+  id          String            @id @default(uuid())
+  orderId     Int               @unique
+  order       Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status      FulfillmentStatus @default(PENDING)
+  attempts    Int               @default(0)
+  maxAttempts Int               @default(5)
+  lastError   String?           @db.Text
+  payload     Json?
+  scheduledAt DateTime          @default(now())
+  processedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status, scheduledAt])
+  @@map("fulfillment_jobs")
+}
+
+enum BatchStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+/// Drip-feed batch execution tracking.
+/// For orders where runs > 1, total quantity is distributed across batches with interval delay in minutes.
+model DripFeedBatch {
+  id              String      @id @default(uuid())
+  orderId         Int
+  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  batchNumber     Int
+  quantity        Int
+  status          BatchStatus @default(PENDING)
+  externalOrderId String?
+  errorMessage    String?     @db.Text
+  scheduledAt     DateTime
+  executedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([orderId, batchNumber])
+  @@index([orderId, status])
+  @@index([status, scheduledAt])
+  @@map("drip_feed_batches")
+}
+
+// ==============================================================================
+// Financial Ledger & Transaction Models
+// ==============================================================================
+
+enum TransactionType {
+  DEPOSIT
+  DEDUCTION
+  REFUND
+}
+
+enum TransactionStatus {
+  SUCCESS
+  PENDING
+}
+
+/// Financial transaction record.
+/// CONVENTION:
+/// - `amount` is always an unsigned (positive) Decimal value.
+/// - The balance impact is strictly determined by `type`:
+///   - DEPOSIT: Credit balance (+ amount)
+///   - DEDUCTION: Debit balance (- amount)
+///   - REFUND: Credit balance (+ amount, reversal of previous deduction)
+model Transaction {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orderId     Int?
+  order       Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  amount      Decimal           @db.Decimal(18, 6)
+  type        TransactionType
+  status      TransactionStatus @default(SUCCESS)
+  description String
+  createdAt   DateTime          @default(now())
+
+  @@index([userId, createdAt])
+  @@index([orderId])
+  @@index([type, status])
+  @@map("transactions")
+}
+
+// ==============================================================================
+// Webhook & Delivery Models
+// ==============================================================================
+
+model Webhook {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  secret    String?
+  events    String[]
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([userId, isActive])
+  @@map("webhooks")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+/// Audit log of webhook delivery attempts, payloads, and HTTP responses.
+model WebhookDelivery {
+  id             String                @id @default(uuid())
+  webhookId      String
+  webhook        Webhook               @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId        String
+  eventType      String
+  payload        Json
+  attempt        Int                   @default(1)
+  responseStatus Int?
+  responseBody   String?               @db.Text
+  errorMessage   String?               @db.Text
+  durationMs     Int?
+  status         WebhookDeliveryStatus @default(PENDING)
+  deliveredAt    DateTime?
+  createdAt      DateTime              @default(now())
+
+  @@index([webhookId, createdAt])
+  @@index([userId, eventId])
+  @@index([status, createdAt])
+  @@map("webhook_deliveries")
+}
+
+// ==============================================================================
+// Idempotency Model
+// ==============================================================================
+
+enum IdempotencyStatus {
+  PENDING
+  RESOLVED
+  FAILED
+}
+
+/// Idempotency protection for order creation and state-mutating requests.
+model IdempotencyRecord {
+  id           String            @id @default(uuid())
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key          String
+  requestHash  String
+  status       IdempotencyStatus @default(PENDING)
+  statusCode   Int?
+  responseBody Json?
+  createdAt    DateTime          @default(now())
+  expiresAt    DateTime
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+

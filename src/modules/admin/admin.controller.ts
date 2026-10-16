@@ -12,6 +12,7 @@ import {
   AdminOrderIdParamSchema,
   AdminGetOrdersQuerySchema,
   AdminUpdateOrderStatusSchema,
+  AdminGetRefillLogsQuerySchema,
 } from "./admin.schemas";
 import { UnauthorizedError } from "../../errors/AppError";
 
@@ -173,6 +174,21 @@ export class AdminController {
         status: "success",
         data: stats,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ==============================================================================
+  // Refill Logs
+  // ==============================================================================
+
+  public async getRefillLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const query = AdminGetRefillLogsQuerySchema.parse(req.query);
+      const result = await adminService.getRefillLogs(query);
+
+      res.status(200).json(result);
     } catch (err) {
       next(err);
     }

@@ -18,6 +18,7 @@ import {
   AdminUpdateUserStatusInput,
   AdminGetOrdersQuery,
   AdminUpdateOrderStatusInput,
+  AdminGetRefillLogsQuery,
 } from "./admin.schemas";
 
 export class AdminService {
@@ -40,6 +41,10 @@ export class AdminService {
         type: input.type,
         description: input.description,
         supportsDripfeed: input.supportsDripfeed,
+        refillEnabled: input.refillEnabled,
+        refillPeriodDays: input.refillPeriodDays,
+        supplierId: input.supplierId,
+        supplierServiceId: input.supplierServiceId,
         isActive: true,
       },
     });
@@ -54,6 +59,10 @@ export class AdminService {
       type: service.type,
       description: service.description,
       supportsDripfeed: service.supportsDripfeed,
+      refillEnabled: service.refillEnabled,
+      refillPeriodDays: service.refillPeriodDays,
+      supplierId: service.supplierId,
+      supplierServiceId: service.supplierServiceId,
       isActive: service.isActive,
       createdAt: service.createdAt,
       updatedAt: service.updatedAt,
@@ -93,6 +102,10 @@ export class AdminService {
       type: s.type,
       description: s.description,
       supportsDripfeed: s.supportsDripfeed,
+      refillEnabled: s.refillEnabled,
+      refillPeriodDays: s.refillPeriodDays,
+      supplierId: s.supplierId,
+      supplierServiceId: s.supplierServiceId,
       isActive: s.isActive,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -133,6 +146,17 @@ export class AdminService {
       );
     }
 
+    // Re-validate refillEnabled and refillPeriodDays against merged values
+    const mergedRefillEnabled = input.refillEnabled ?? existing.refillEnabled;
+    const mergedRefillPeriodDays =
+      input.refillPeriodDays !== undefined ? input.refillPeriodDays : existing.refillPeriodDays;
+
+    if (mergedRefillEnabled && (!mergedRefillPeriodDays || mergedRefillPeriodDays <= 0)) {
+      throw new BadRequestError(
+        "refillPeriodDays is required and must be greater than 0 when refillEnabled is true",
+      );
+    }
+
     const updateData: Prisma.ServiceUpdateInput = {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.category !== undefined && { category: input.category }),
@@ -145,6 +169,14 @@ export class AdminService {
       ...(input.description !== undefined && { description: input.description }),
       ...(input.supportsDripfeed !== undefined && {
         supportsDripfeed: input.supportsDripfeed,
+      }),
+      ...(input.refillEnabled !== undefined && { refillEnabled: input.refillEnabled }),
+      ...(input.refillPeriodDays !== undefined && { refillPeriodDays: input.refillPeriodDays }),
+      ...(input.supplierId !== undefined && {
+        supplier: input.supplierId ? { connect: { id: input.supplierId } } : { disconnect: true },
+      }),
+      ...(input.supplierServiceId !== undefined && {
+        supplierServiceId: input.supplierServiceId,
       }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
     };
@@ -164,6 +196,10 @@ export class AdminService {
       type: updated.type,
       description: updated.description,
       supportsDripfeed: updated.supportsDripfeed,
+      refillEnabled: updated.refillEnabled,
+      refillPeriodDays: updated.refillPeriodDays,
+      supplierId: updated.supplierId,
+      supplierServiceId: updated.supplierServiceId,
       isActive: updated.isActive,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
@@ -732,6 +768,87 @@ export class AdminService {
         total: formatMonetaryAmount(totalRevenueDecimal, 6),
         today: formatMonetaryAmount(todayRevenueDecimal, 6),
         currency: "USD",
+      },
+    };
+  }
+
+  // ==============================================================================
+  // Refill Logs
+  // ==============================================================================
+
+  /**
+   * GET /api/v1/admin/refill-logs
+   * Returns paginated refill logs with optional orderId & status filtering.
+   * Uses stable ordering (createdAt desc).
+   */
+  public async getRefillLogs(query: AdminGetRefillLogsQuery) {
+    const where: Prisma.RefillLogWhereInput = {
+      ...(query.orderId !== undefined ? { orderId: query.orderId } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+    };
+
+    const skip = (query.page - 1) * query.limit;
+
+    const [total, logs] = await Promise.all([
+      prisma.refillLog.count({ where }),
+      prisma.refillLog.findMany({
+        where,
+        skip,
+        take: query.limit,
+        orderBy: { createdAt: "desc" },
+        include: {
+          order: {
+            select: {
+              id: true,
+              userId: true,
+              serviceId: true,
+              externalOrderId: true,
+              status: true,
+              refillStatus: true,
+              service: {
+                select: {
+                  id: true,
+                  name: true,
+                  supplierId: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const formattedLogs = logs.map((log) => ({
+      id: log.id,
+      orderId: log.orderId,
+      supplierRefillId: log.supplierRefillId,
+      status: log.status,
+      errorMessage: log.errorMessage,
+      previousCount: log.previousCount,
+      newCount: log.newCount,
+      droppedAmount: log.droppedAmount,
+      createdAt: log.createdAt,
+      updatedAt: log.updatedAt,
+      order: log.order
+        ? {
+            id: log.order.id,
+            userId: log.order.userId,
+            serviceId: log.order.serviceId,
+            serviceName: log.order.service.name,
+            externalOrderId: log.order.externalOrderId,
+            orderStatus: log.order.status,
+            refillStatus: log.order.refillStatus,
+          }
+        : null,
+    }));
+
+    return {
+      data: formattedLogs,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit) || 1,
       },
     };
   }

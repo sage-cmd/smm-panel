@@ -55,26 +55,46 @@ model ApiKey {
 }
 
 // ==============================================================================
-// Service Catalog Models
+// Service & Supplier Catalog Models
 // ==============================================================================
 
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  apiUrl    String
+  apiKey    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services Service[]
+
+  @@map("suppliers")
+}
+
 model Service {
-  id               Int      @id @default(autoincrement())
-  name             String
-  category         String
-  ratePer1000      Decimal  @db.Decimal(18, 6)
-  minQuantity      Int
-  maxQuantity      Int
-  type             String   @default("Default")
-  description      String?  @db.Text
-  supportsDripfeed Boolean  @default(false)
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                Int       @id @default(autoincrement())
+  name              String
+  category          String
+  ratePer1000       Decimal   @db.Decimal(18, 6)
+  minQuantity       Int
+  maxQuantity       Int
+  type              String    @default("Default")
+  description       String?   @db.Text
+  supportsDripfeed  Boolean   @default(false)
+  refillEnabled     Boolean   @default(false)
+  refillPeriodDays  Int?
+  supplierId        Int?
+  supplier          Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierServiceId Int?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   orders Order[]
 
   @@index([isActive, category])
+  @@index([supplierId])
   @@map("services")
 }
 
@@ -90,32 +110,69 @@ enum OrderStatus {
   PARTIAL
 }
 
+enum RefillStatus {
+  NONE
+  WAITING
+  REFILLING
+  COMPLETED
+}
+
 model Order {
-  id              Int         @id @default(autoincrement())
+  id              Int          @id @default(autoincrement())
   userId          String
-  user            User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Restrict)
   serviceId       Int
-  service         Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  service         Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   link            String
   quantity        Int
-  totalCharge     Decimal     @db.Decimal(18, 6)
-  status          OrderStatus @default(PENDING)
+  totalCharge     Decimal      @db.Decimal(18, 6)
+  status          OrderStatus  @default(PENDING)
   startCount      Int?
   remains         Int
   runs            Int?
   interval        Int?
   externalOrderId String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  refillStatus    RefillStatus @default(NONE)
+  refillExpiresAt DateTime?
+  lastRefillCheck DateTime?
+  refillCount     Int          @default(0)
+  activeRefillId  String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   transactions   Transaction[]
   fulfillmentJob FulfillmentJob?
   batches        DripFeedBatch[]
+  refills        RefillLog[]
 
   @@index([userId, status])
+  @@index([refillStatus, refillExpiresAt])
   @@index([serviceId])
   @@index([createdAt])
   @@map("orders")
+}
+
+enum RefillLogStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model RefillLog {
+  id               String          @id @default(uuid())
+  orderId          Int
+  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  supplierRefillId String?
+  status           RefillLogStatus @default(PENDING)
+  errorMessage     String?         @db.Text
+  previousCount    Int?
+  newCount         Int?
+  droppedAmount    Int?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([orderId, createdAt])
+  @@map("refill_logs")
 }
 
 enum FulfillmentStatus {

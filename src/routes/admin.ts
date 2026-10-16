@@ -54,3 +54,10 @@ adminRouter.patch("/orders/:id/status", adminController.updateOrderStatus.bind(a
 
 // GET /stats -> Platform statistics overview
 adminRouter.get("/stats", adminController.getStats.bind(adminController));
+
+// ==============================================================================
+// Refill Logs Admin Endpoints
+// ==============================================================================
+
+// GET /refill-logs -> List paginated refill logs with optional orderId & status filters
+adminRouter.get("/refill-logs", adminController.getRefillLogs.bind(adminController));

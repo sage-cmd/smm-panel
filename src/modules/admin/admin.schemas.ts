@@ -1,6 +1,6 @@
 import { z } from "zod";
 import Decimal from "decimal.js";
-import { OrderStatus, Role } from "@prisma/client";
+import { OrderStatus, Role, RefillLogStatus } from "@prisma/client";
 
 // ==============================================================================
 // Parameter Schemas
@@ -108,12 +108,37 @@ export const AdminCreateServiceSchema = z
     type: z.string().trim().min(1).default("Default"),
     description: z.string().trim().optional().nullable(),
     supportsDripfeed: z.boolean().default(false),
+    refillEnabled: z.boolean().default(false),
+    refillPeriodDays: z
+      .number()
+      .int()
+      .positive("refillPeriodDays must be greater than 0")
+      .optional()
+      .nullable(),
+    supplierId: z.number().int().positive().optional().nullable(),
+    supplierServiceId: z.number().int().positive().optional().nullable(),
   })
   .strict()
   .refine((data) => data.minQuantity <= data.maxQuantity, {
     message: "minQuantity must be less than or equal to maxQuantity",
     path: ["maxQuantity"],
-  });
+  })
+  .refine(
+    (data) => {
+      if (data.refillEnabled) {
+        return (
+          data.refillPeriodDays !== undefined &&
+          data.refillPeriodDays !== null &&
+          data.refillPeriodDays > 0
+        );
+      }
+      return true;
+    },
+    {
+      message: "refillPeriodDays is required and must be greater than 0 when refillEnabled is true",
+      path: ["refillPeriodDays"],
+    },
+  );
 
 export type AdminCreateServiceInput = z.infer<typeof AdminCreateServiceSchema>;
 
@@ -144,6 +169,15 @@ export const AdminUpdateServiceSchema = z
     type: z.string().trim().min(1).optional(),
     description: z.string().trim().optional().nullable(),
     supportsDripfeed: z.boolean().optional(),
+    refillEnabled: z.boolean().optional(),
+    refillPeriodDays: z
+      .number()
+      .int()
+      .positive("refillPeriodDays must be greater than 0")
+      .optional()
+      .nullable(),
+    supplierId: z.number().int().positive().optional().nullable(),
+    supplierServiceId: z.number().int().positive().optional().nullable(),
     isActive: z.boolean().optional(),
   })
   .strict()
@@ -160,6 +194,22 @@ export const AdminUpdateServiceSchema = z
     {
       message: "minQuantity must be less than or equal to maxQuantity",
       path: ["maxQuantity"],
+    },
+  )
+  .refine(
+    (data) => {
+      if (
+        data.refillEnabled === true &&
+        data.refillPeriodDays !== undefined &&
+        (data.refillPeriodDays === null || data.refillPeriodDays <= 0)
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "refillPeriodDays must be greater than 0 when refillEnabled is true",
+      path: ["refillPeriodDays"],
     },
   );
 
@@ -306,3 +356,36 @@ export const AdminUpdateOrderStatusSchema = z
   .strict();
 
 export type AdminUpdateOrderStatusInput = z.infer<typeof AdminUpdateOrderStatusSchema>;
+
+// ==============================================================================
+// Refill Logs Schemas
+// ==============================================================================
+
+/**
+ * Validates query parameters for listing refill logs in admin panel.
+ */
+export const AdminGetRefillLogsQuerySchema = z
+  .object({
+    page: z
+      .string()
+      .optional()
+      .transform((val) => (val !== undefined ? parseInt(val, 10) : 1))
+      .refine((val) => !isNaN(val) && val >= 1, "Page must be an integer >= 1"),
+    limit: z
+      .string()
+      .optional()
+      .transform((val) => (val !== undefined ? parseInt(val, 10) : 20))
+      .refine(
+        (val) => !isNaN(val) && val >= 1 && val <= 100,
+        "Limit must be an integer between 1 and 100",
+      ),
+    orderId: z
+      .string()
+      .regex(/^\d+$/, "orderId must be a positive integer")
+      .transform((val) => parseInt(val, 10))
+      .optional(),
+    status: z.nativeEnum(RefillLogStatus).optional(),
+  })
+  .strict();
+
+export type AdminGetRefillLogsQuery = z.infer<typeof AdminGetRefillLogsQuerySchema>;

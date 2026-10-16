@@ -166,6 +166,13 @@ export class RestService {
           },
         });
 
+        // Calculate refill guarantee snapshot if service supports it
+        const refillStatus = service.refillEnabled ? "WAITING" : "NONE";
+        const refillExpiresAt =
+          service.refillEnabled && service.refillPeriodDays
+            ? new Date(Date.now() + service.refillPeriodDays * 24 * 60 * 60 * 1000)
+            : null;
+
         // Persist Order
         const createdOrder = await tx.order.create({
           data: {
@@ -178,6 +185,8 @@ export class RestService {
             remains: data.quantity,
             runs: isDripFeed ? data.runs : null,
             interval: isDripFeed ? data.interval : null,
+            refillStatus,
+            refillExpiresAt,
           },
         });
 

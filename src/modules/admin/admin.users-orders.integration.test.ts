@@ -4,7 +4,14 @@ import crypto from "node:crypto";
 import { app } from "../../app";
 import { prisma } from "../../lib/prisma";
 import * as events from "../../jobs/events";
-import { OrderStatus, Prisma, Role, TransactionStatus, TransactionType } from "@prisma/client";
+import {
+  OrderStatus,
+  Prisma,
+  Role,
+  TransactionStatus,
+  TransactionType,
+  RefillLogStatus,
+} from "@prisma/client";
 
 vi.mock("../../lib/prisma", () => {
   const mockTx = {
@@ -31,6 +38,10 @@ vi.mock("../../lib/prisma", () => {
       create: vi.fn(),
       findMany: vi.fn(),
       aggregate: vi.fn(),
+    },
+    refillLog: {
+      count: vi.fn(),
+      findMany: vi.fn(),
     },
     fulfillmentJob: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -568,6 +579,90 @@ describe("Admin Users, Orders & Stats APIs (/api/v1/admin)", () => {
         CANCELED: 50,
         PARTIAL: 0,
       });
+    });
+  });
+
+  // ============================================================================
+  // Refill Logs API
+  // ============================================================================
+
+  describe("GET /api/v1/admin/refill-logs", () => {
+    const mockRefillLog = {
+      id: "refill-log-uuid-101",
+      orderId: 60,
+      supplierRefillId: "sup_ref_999",
+      status: RefillLogStatus.SUCCESS,
+      errorMessage: null,
+      previousCount: 100,
+      newCount: 200,
+      droppedAmount: 50,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      order: {
+        id: 60,
+        userId: "b0000000-0000-4000-8000-000000000002",
+        serviceId: 1,
+        externalOrderId: "ext-order-60",
+        status: OrderStatus.COMPLETED,
+        refillStatus: "WAITING",
+        service: {
+          id: 1,
+          name: "Instagram Followers",
+          supplierId: 1,
+        },
+      },
+    };
+
+    it("should return paginated list of refill logs with metadata", async () => {
+      vi.mocked(prisma.refillLog.count).mockResolvedValue(1);
+      vi.mocked(prisma.refillLog.findMany).mockResolvedValue([mockRefillLog as any]);
+
+      const res = await request(app)
+        .get("/api/v1/admin/refill-logs?page=1&limit=20")
+        .set("Authorization", `Bearer ${adminApiKey}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].id).toBe("refill-log-uuid-101");
+      expect(res.body.data[0].orderId).toBe(60);
+      expect(res.body.data[0].supplierRefillId).toBe("sup_ref_999");
+      expect(res.body.data[0].status).toBe("SUCCESS");
+      expect(res.body.data[0].order.serviceName).toBe("Instagram Followers");
+      expect(res.body.meta).toEqual({
+        page: 1,
+        limit: 20,
+        total: 1,
+        totalPages: 1,
+      });
+    });
+
+    it("should filter refill logs by orderId and status", async () => {
+      vi.mocked(prisma.refillLog.count).mockResolvedValue(1);
+      vi.mocked(prisma.refillLog.findMany).mockResolvedValue([mockRefillLog as any]);
+
+      const res = await request(app)
+        .get("/api/v1/admin/refill-logs?orderId=60&status=SUCCESS")
+        .set("Authorization", `Bearer ${adminApiKey}`);
+
+      expect(res.status).toBe(200);
+      expect(prisma.refillLog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            orderId: 60,
+            status: "SUCCESS",
+          },
+        }),
+      );
+    });
+
+    it("should reject invalid orderId or status format", async () => {
+      const res = await request(app)
+        .get("/api/v1/admin/refill-logs?orderId=not-a-number")
+        .set("Authorization", `Bearer ${adminApiKey}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.status).toBe("error");
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
     });
   });
 });

@@ -13,6 +13,9 @@ export const envSchema = z.object({
   REDIS_PASSWORD: z.string().optional().default(""),
   WEBHOOK_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   WEBHOOK_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
+  REFILL_DRY_RUN: z
+    .preprocess((val) => val === true || val === "true" || val === "1", z.boolean())
+    .default(false),
   TEST_USER_EMAIL: z.string().email().optional().default("testuser@example.com"),
   TEST_USER_PASSWORD: z.string().optional().default("DevPassword123!Secure"),
   TEST_API_KEY: z.string().optional().default("smm_test_dev_key_0123456789abcdef"),

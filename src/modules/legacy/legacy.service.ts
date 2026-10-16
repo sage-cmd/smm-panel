@@ -130,6 +130,13 @@ export class LegacyService {
         },
       });
 
+      // Calculate refill guarantee snapshot if service supports it
+      const refillStatus = service.refillEnabled ? "WAITING" : "NONE";
+      const refillExpiresAt =
+        service.refillEnabled && service.refillPeriodDays
+          ? new Date(Date.now() + service.refillPeriodDays * 24 * 60 * 60 * 1000)
+          : null;
+
       // 7. Persist Order
       const order = await tx.order.create({
         data: {
@@ -142,6 +149,8 @@ export class LegacyService {
           remains: data.quantity,
           runs: isDripFeed ? data.runs : null,
           interval: isDripFeed ? data.interval : null,
+          refillStatus,
+          refillExpiresAt,
         },
       });
 
